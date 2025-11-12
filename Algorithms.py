@@ -140,8 +140,17 @@ def fast_fourier_transform(f, omegas, field):
 def eval_poly(f, x, field):
     return sum([((x**i)*f[i])%field for i in range(len(f))])%field
 
-def fast_convolution(f, g, field):
-    
+def fast_convolution(f, g, omega, n, field):
+    omegas = [(omega**i)%field for i in range(n)]
+    alpha = fast_fourier_transform(f, omegas, field)
+    beta = fast_fourier_transform(g, omegas, field)
+    gamma = [(alpha[i]*beta[i])%field for i in range(len(alpha))]
+    omega_inv = inverse(omega, field)
+    omegas_inv = [(omega_inv**i)%field for i in range(n)]
+    dft_res = fast_fourier_transform(gamma, omega_inv, field)
+    n_inv = inverse(n, field)
+    result = [(dft_res[i]*n_inv)%field for i in range(len(dft_res))]
+    return result
 
 if __name__ == "__main__":
     field = 5
