@@ -1,4 +1,5 @@
 from math import log2
+from copy import deepcopy
 
 def karatsuba(p1, p2, field):
     #print("Karatsuba")
@@ -153,10 +154,11 @@ def fast_convolution(f, g, omega, n, field):
     return result
 
 class MultiVarPoly:
-    def __init__(self, degrees, coefficients, field):
+    def __init__(self, degrees, coefficients, field, numvars):
         self.degrees = degrees
         self.coefficients = coefficients
         self.field = field
+        self.vars = numvars
 
     def __str__(self):
         string = ""
@@ -172,8 +174,10 @@ class MultiVarPoly:
                 string = string + str(self.coefficients[i]) + x_string
             else:
                 string = string + x_string
-            if i < len(self.degrees) - 1:
+            if i < len(self.degrees) - 1 and (self.coefficients[i+1] > 0):
                 string = string + " + "
+            elif i < len(self.degrees):
+                string = string + " "
         return string
 
     def mdeglessthanorequal(self, mdeg1, mdeg2):
@@ -183,6 +187,71 @@ class MultiVarPoly:
             if mdeg2[i] < mdeg1[i]:
                 return -1
         return 0
+
+    def enforce_structure(self):
+        dict_struct = {}
+        for i in range(len(self.degrees)):
+            degtuple = tuple(self.degrees[i])
+            if degtuple in dict_struct.keys():
+                dict_struct[degtuple] += self.coefficients[i]
+                if str(self.field) != "Q":
+                    dict_struct[degtuple] = dict_struct[degtuple] % self.field
+                if abs(dict_struct[degtuple]) < 10**(-14):
+                    del dict_struct[degtuple]
+            elif abs(self.coefficients[i]) > 10**(-14):
+                dict_struct[degtuple] = self.coefficients[i]
+        
+        listdegs = list(dict_struct)
+        listcoeffs = [dict_struct[e] for e in listdegs]
+        listdegs2 = [list(e) for e in listdegs]
+        #print("postliststuff")
+        #print(listdegs2)
+        sorteddegs, sortedcoeffs = self.sort(listdegs2, listcoeffs)
+        if len(sorteddegs) == 0:
+            sorteddegs = [[0 for _ in range(self.vars)]]
+            sortedcoeffs = [0]
+        self.degrees = sorteddegs
+        self.coefficients = sortedcoeffs
+
+    def sort(self, degs, coeffs):
+        if len(degs) < 2:
+            return degs, coeffs
+        split = len(degs)//2
+        degs1 = degs[:split]
+        coeffs1 = coeffs[:split]
+        degs2 = degs[split:]
+        coeffs2 = coeffs[split:]
+        sorteddegs1, sortedcoeffs1 = self.sort(degs1, coeffs1)
+        sorteddegs2, sortedcoeffs2 = self.sort(degs2, coeffs2)
+        sorteddegs3, sortedcoeffs3 = self.merge(sorteddegs1, sortedcoeffs1, sorteddegs2, sortedcoeffs2)
+        return sorteddegs3, sortedcoeffs3
+
+    def merge(self, degs1, coeffs1, degs2, coeffs2):
+        degs3 = []
+        coeffs3 = []
+        i1 = 0
+        i2 = 0
+        while i1 < len(degs1) and i2 < len(degs2):
+            degi1 = degs1[i1]
+            degi2 = degs2[i2]
+            leq = self.mdeglessthanorequal(degi1, degi2)
+            if leq == 1:
+                degs3.append(degi1)
+                coeffs3.append(coeffs1[i1])
+                i1 += 1
+            else:
+                degs3.append(degi2)
+                coeffs3.append(coeffs2[i2])
+                i2 += 1
+        while i1 < len(degs1):
+            degs3.append(degs1[i1])
+            coeffs3.append(coeffs1[i1])
+            i1 += 1
+        while i2 < len(degs2):
+            degs3.append(degs2[i2])
+            coeffs3.append(coeffs2[i2])
+            i2 += 1
+        return degs3, coeffs3
     
     def __add__(self, other):
         p3degrees = []
@@ -220,8 +289,123 @@ class MultiVarPoly:
             p3degrees.append(other.degrees[i2])
             p3coeffs.append(other.coefficients[i2])
             i2 += 1
-        p3 = MultiVarPoly(p3degrees, p3coeffs, self.field)
+        p3 = MultiVarPoly(p3degrees, p3coeffs, self.field, self.vars)
+        p3.enforce_structure()
         return p3
+
+    def __mul__(self, other):
+        p3degrees = []
+        p3coeffs = []
+        for i in range(len(self.degrees)):
+            for j in range(len(other.degrees)):
+                deg1 = self.degrees[i]
+                coeff1 = self.coefficients[i]
+                deg2 = other.degrees[j]
+                coeff2 = other.coefficients[j]
+                deg3 = [deg1[k] + deg2[k] for k in range(len(deg1))]
+                coeff3 = 0
+                if str(self.field) == "Q":
+                    coeff3 = coeff1 * coeff2
+                else:
+                    coeff3 = (coeff1 * coeff2)%self.field
+                p3degrees.append(deg3)
+                p3coeffs.append(coeff3)
+        p3 = MultiVarPoly(p3degrees, p3coeffs, self.field, self.vars)
+        #print("postmult")
+        #print(p3)
+        p3.enforce_structure()
+        return p3
+
+    def __sub__(self, other):
+        p3 = MultiVarPoly([[0 for _ in range(len(self.degrees[0]))]], [-1], self.field, self.vars) * other
+        return self + p3
+
+    def lt(self):
+        return MultiVarPoly([self.degrees[-1]], [self.coefficients[-1]], self.field, self.vars)
+    
+    def lm(self):
+        return MultiVarPoly([self.degrees[-1]], [1], self.field, self.vars)
+
+    def lc(self):
+        return self.coefficients[-1]
+
+    def mdeg(self):
+        return self.degrees[-1]
+
+    def divisible(self, other):
+        mdeg1 = self.mdeg()
+        mdeg2 = other.mdeg()
+        for i in range(len(mdeg1)):
+            if mdeg2[i] > mdeg1[i]:
+                return False
+        return True
+
+def Syzygy(p1, p2):
+    lt1 = p1.lt()
+    lt2 = p2.lt()
+    maxdeg = [max(lt1.degrees[0][i], lt2.degrees[0][i]) for i in range(len(lt1.degrees[0]))]
+    coeffs1 = 0
+    coeffs2 = 0
+    if str(p1.field) == "Q":
+        coeffs1 = 1/lt1.lc()
+        coeffs2 = 1/lt2.lc()
+    else:
+        coeffs1 = inverse(lt1.lc(), p1.field)
+        coeffs2 = inverse(lt2.lc(), p1.field)
+    
+    part1 = MultiVarPoly([[maxdeg[i] - lt1.degrees[0][i] for i in range(len(maxdeg))]], [coeffs1], p1.field, p1.vars)
+    part2 = MultiVarPoly([[maxdeg[i] - lt2.degrees[0][i] for i in range(len(maxdeg))]], [coeffs2], p1.field, p1.vars)
+    #print("hej")
+    #print(part1 * p1)
+    #print(part2 * p2)
+    return (part1 * p1) - (part2 * p2)
+
+def multiVarRemainder(p1, G):
+    r = MultiVarPoly([[0 for i in range(p1.vars)]], [0], p1.field, p1.vars)
+    Q = [MultiVarPoly([[0 for i in range(p1.vars)]], [0], p1.field, p1.vars) for _ in range(len(G))]
+    f = deepcopy(p1)
+    while len(f.coefficients) != 1 or f.coefficients[0] != 0:
+        divisor = None
+        divindex = 0
+        for i, g in enumerate(G):
+            if f.divisible(g):
+                divisor = g
+                divindex = i
+                break
+        if divisor == None:
+            r = r + f.lt()
+            f = f - f.lt()
+            r.enforce_structure()
+            f.enforce_structure()
+        else:
+            coeff = 0
+            if str(p1.field) != "Q":
+                coeff = (f.lc() * inverse(divisor.lc(), p1.field)) % p1.field
+            else:
+                coeff = f.lc() / divisor.lc()
+            quotient = MultiVarPoly([[f.mdeg()[i] - divisor.mdeg()[i] for i in range(len(f.mdeg()))]], [coeff], p1.field, p1.vars)
+            quotient.enforce_structure()
+            Q[divindex] = Q[divindex] + quotient
+            f = f - (quotient * divisor)
+    return Q, r
+
+def Buchbergers(G):
+    while True:
+        S = []
+        print("start loop")
+        for i in range(len(G) - 1):
+            for j in range(i+1, len(G)):
+                syz = Syzygy(G[i], G[j])
+                print(syz)
+                _, r = multiVarRemainder(syz, G)
+                if r.coefficients[0] != 0:
+                    S.append(r)
+        if len(S) == 0:
+            return G
+        print("iter")
+        for e in S:
+            print(e)
+        G = G + S
 
 if __name__ == "__main__":
     field = 5
@@ -243,9 +427,40 @@ if __name__ == "__main__":
     print(fast_fourier_transform(f, omegas, field))
 
     print("Multipoly testing")
-    p1 = MultiVarPoly([[0,0,0], [0,0,2], [0,2,0]], [-1, 1, 1], "Q")
+    p1 = MultiVarPoly([[0,0,0], [0,0,2], [0,2,0]], [-1, 1, 1], "Q", 3)
     print(p1)
-    p2 = MultiVarPoly([[0,0,1], [0,1,1], [1,1,0]], [-2, 2, -2], "Q")
+    p2 = MultiVarPoly([[0,0,1], [0,1,1], [1,1,0]], [-2, 2, -2], "Q", 3)
     print(p2)
     p3 = p1 + p2
     print(p3)
+    p4 = p1 * p2
+    print(p4)
+    p5 = Syzygy(p1, p2)
+    print(p5)
+    print(p1 - p1)
+    print("Remainder testing")
+    g1 = MultiVarPoly([[0,0,0], [0,0,2], [0,2,0]], [-1, 1, 1], "Q", 3)
+    g2 = MultiVarPoly([[0,0,1], [0,1,1], [1,1,0]], [-2, 2, -2], "Q", 3)
+    g3 = MultiVarPoly([[0,0,0], [0,1,0], [0,2,0], [1,0,1]], [1, -2, 1, -2], "Q", 3)
+    G = [g1, g2, g3]
+    f = Syzygy(g1, g2)
+    Qs, r = multiVarRemainder(f, G)
+    for e in Qs:
+        print(e)
+    print(r)
+    print("grobner testing")
+    grobner = Buchbergers(G)
+    print("basis1")
+    for e in grobner:
+        print(e)
+        pass
+    grobner = grobner[:-7]
+    for e in grobner:
+        #print(e)
+        pass
+    grobner = [grobner[3], grobner[6], grobner[8]]
+    for e in grobner:
+        print(e)
+    mingrobner = [MultiVarPoly([[0,0,0]], [-1], "Q", 3)*grobner[0], MultiVarPoly([[0,0,0]], [1/(grobner[1].lc())], "Q", 3)*grobner[1], MultiVarPoly([[0,0,0]], [1/(grobner[2].lc())], "Q", 3)*grobner[2]]
+    for e in mingrobner:
+        print(e)
