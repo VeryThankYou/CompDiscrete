@@ -152,6 +152,77 @@ def fast_convolution(f, g, omega, n, field):
     result = [(dft_res[i]*n_inv)%field for i in range(len(dft_res))]
     return result
 
+class MultiVarPoly:
+    def __init__(self, degrees, coefficients, field):
+        self.degrees = degrees
+        self.coefficients = coefficients
+        self.field = field
+
+    def __str__(self):
+        string = ""
+        for i in range(len(self.degrees)):
+            degi = self.degrees[i]
+            x_string = ""
+            for j in range(len(degi)):
+                if degi[j] > 0:
+                    x_string = x_string + "x_{" + str(j+1) + "}"
+                    if degi[j] > 1:
+                        x_string = x_string + "^" + str(degi[j])
+            if self.coefficients[i] != 1 or x_string == "":
+                string = string + str(self.coefficients[i]) + x_string
+            else:
+                string = string + x_string
+            if i < len(self.degrees) - 1:
+                string = string + " + "
+        return string
+
+    def mdeglessthanorequal(self, mdeg1, mdeg2):
+        for i in range(len(mdeg1)):
+            if mdeg1[i] < mdeg2[i]:
+                return 1
+            if mdeg2[i] < mdeg1[i]:
+                return -1
+        return 0
+    
+    def __add__(self, other):
+        p3degrees = []
+        p3coeffs = []
+        i1 = 0
+        i2 = 0
+        while i1 < len(self.degrees) and i2 < len(other.degrees):
+            mdegi1 = self.degrees[i1]
+            mdegi2 = other.degrees[i2]
+            leq = self.mdeglessthanorequal(mdegi1, mdegi2)
+            if leq == 0:
+                coeff = 0
+                if str(self.field) != "Q":
+                    coeff = (self.coefficients[i1] + other.coefficients[i2]) % field
+                else:
+                    coeff = (self.coefficients[i1] + other.coefficients[i2])
+                if coeff != 0:
+                    p3degrees.append(mdegi1)
+                    p3coeffs.append(coeff)
+                i1 += 1
+                i2 += 1
+            elif leq == 1:
+                p3degrees.append(mdegi1)
+                p3coeffs.append(self.coefficients[i1])
+                i1 += 1
+            elif leq == -1:
+                p3degrees.append(mdegi2)
+                p3coeffs.append(other.coefficients[i2])
+                i2 += 1
+        while i1 < len(self.degrees):
+            p3degrees.append(self.degrees[i1])
+            p3coeffs.append(self.coefficients[i1])
+            i1 += 1
+        while i2 < len(other.degrees):
+            p3degrees.append(other.degrees[i2])
+            p3coeffs.append(other.coefficients[i2])
+            i2 += 1
+        p3 = MultiVarPoly(p3degrees, p3coeffs, self.field)
+        return p3
+
 if __name__ == "__main__":
     field = 5
     f = [1,0,1]
@@ -170,3 +241,11 @@ if __name__ == "__main__":
     dft_brute_force = [eval_poly(f, o, field) for o in omegas]
     print(dft_brute_force)
     print(fast_fourier_transform(f, omegas, field))
+
+    print("Multipoly testing")
+    p1 = MultiVarPoly([[0,0,0], [0,0,2], [0,2,0]], [-1, 1, 1], "Q")
+    print(p1)
+    p2 = MultiVarPoly([[0,0,1], [0,1,1], [1,1,0]], [-2, 2, -2], "Q")
+    print(p2)
+    p3 = p1 + p2
+    print(p3)
